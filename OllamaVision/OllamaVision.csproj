@@ -8,4 +8,9 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Explicitly reference the WPF framework to ensure all UI Automation libraries are available -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
+
 </Project>

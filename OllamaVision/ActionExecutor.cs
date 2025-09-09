@@ -4,61 +4,33 @@ namespace OllamaVision
 {
     /// <summary>
     /// Represents a single action to be performed, as described by the AI.
-    /// This class is designed to be deserialized from a JSON object.
+    /// This version is designed for UI Automation, targeting controls by properties.
     /// </summary>
     public class AIAction
     {
         [JsonPropertyName("action")]
-        public string Action { get; set; }
+        public string Action { get; set; } // e.g., "INVOKE", "SET_VALUE"
 
-        [JsonPropertyName("text")]
-        public string Text { get; set; }
+        [JsonPropertyName("control")]
+        public ControlIdentifier Control { get; set; }
 
-        [JsonPropertyName("x")]
-        public int? X { get; set; }
-
-        [JsonPropertyName("y")]
-        public int? Y { get; set; }
+        [JsonPropertyName("value")]
+        public string Value { get; set; } // Used for actions like SET_VALUE
     }
 
     /// <summary>
-    /// Executes an AI-generated action.
+    /// Describes a UI control to be targeted by an AIAction.
+    /// The AI should provide at least one of these properties.
     /// </summary>
-    public static class ActionExecutor
+    public class ControlIdentifier
     {
-        public static void Execute(AIAction action)
-        {
-            if (action == null || string.IsNullOrEmpty(action.Action))
-            {
-                // Invalid action
-                return;
-            }
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
 
-            switch (action.Action.ToUpper())
-            {
-                case "TYPE":
-                    if (action.Text != null)
-                    {
-                        InputSimulator.SendText(action.Text);
-                    }
-                    break;
+        [JsonPropertyName("type")]
+        public string Type { get; set; }
 
-                case "CLICK":
-                    if (action.X.HasValue && action.Y.HasValue)
-                    {
-                        InputSimulator.ClickOnPoint(action.X.Value, action.Y.Value);
-                    }
-                    break;
-
-                case "DONE":
-                    // This action type signals that the task is complete.
-                    // The execution loop will handle this.
-                    break;
-
-                default:
-                    // Optionally, handle or log unknown action types.
-                    break;
-            }
-        }
+        [JsonPropertyName("automationId")]
+        public string AutomationId { get; set; }
     }
 }

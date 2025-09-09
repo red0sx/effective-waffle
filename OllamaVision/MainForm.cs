@@ -15,7 +15,6 @@ namespace OllamaVision
 {
     public class MainForm : Form
     {
-        // P/Invoke for global hotkeys
         [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vlc);
         [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
@@ -31,6 +30,7 @@ namespace OllamaVision
         private Label instructionLabel;
 
         private static readonly HttpClient client = new HttpClient();
+        private readonly UIAutomationService _uiAutomationService = new UIAutomationService();
         private CancellationTokenSource _executionCts;
         private List<AIAction> _actionHistory;
 
@@ -72,7 +72,6 @@ namespace OllamaVision
             stopLabel.Location = new Point(220, 60);
             stopLabel.AutoSize = true;
             this.Controls.Add(stopLabel);
-
 
             this.outputTextBox.Location = new Point(12, 84);
             this.outputTextBox.Multiline = true;
@@ -119,10 +118,7 @@ namespace OllamaVision
             {
                 await ExecutionLoop(instruction, _executionCts.Token);
             }
-            catch (TaskCanceledException)
-            {
-                // This is expected
-            }
+            catch (TaskCanceledException) { /* Expected */ }
             catch (Exception ex)
             {
                 outputTextBox.AppendText($"\r\nAn unexpected error occurred: {ex.Message}\r\n{ex.StackTrace}");
@@ -147,10 +143,11 @@ namespace OllamaVision
                 this.Hide();
                 await Task.Delay(250, token);
                 var base64Image = CaptureScreen();
+                var uiMap = _uiAutomationService.GetUIMapForForegroundWindow();
                 this.Show();
                 this.Activate();
 
-                string prompt = BuildPrompt(instruction, _actionHistory);
+                string prompt = BuildPrompt(instruction, _actionHistory, uiMap);
 
                 outputTextBox.AppendText("Asking AI for next action...\r\n");
                 var ollamaResponse = await GetAIResponse(prompt, base64Image, token);
@@ -171,36 +168,40 @@ namespace OllamaVision
                 if (aiAction == null) { outputTextBox.AppendText("Error: Failed to deserialize AI action.\r\n"); break; }
 
                 _actionHistory.Add(aiAction);
-                outputTextBox.AppendText($"AI action: {aiAction.Action} {aiAction.Text} {(aiAction.X.HasValue ? $"({aiAction.X.Value},{aiAction.Y.Value})" : "")}\r\n");
+                outputTextBox.AppendText($"AI response: {JsonSerializer.Serialize(aiAction)}\r\n");
 
                 if (aiAction.Action.ToUpper() == "DONE") { outputTextBox.AppendText("\r\n--- EXECUTION COMPLETE ---"); break; }
 
-                ActionExecutor.Execute(aiAction);
+                if (!_uiAutomationService.FindAndExecuteAction(aiAction))
+                {
+                    outputTextBox.AppendText("Error: Failed to execute action on the specified control.\r\n");
+                }
+
                 await Task.Delay(1000, token);
             }
         }
 
-        private string BuildPrompt(string userInstruction, List<AIAction> history)
+        private string BuildPrompt(string userInstruction, List<AIAction> history, List<UIElementInfo> uiMap)
         {
             var promptBuilder = new StringBuilder();
             promptBuilder.AppendLine("You are an AI assistant controlling a computer. Your goal is to complete the user's instruction.");
             promptBuilder.AppendLine($"The user's instruction is: '{userInstruction}'.");
-            promptBuilder.AppendLine("You will be given a screenshot of the current screen. Based on the screenshot and the instruction, decide the next single action to perform.");
 
             if (history.Count > 0)
             {
                 promptBuilder.AppendLine("So far, you have performed these actions:");
-                foreach(var action in history) { promptBuilder.AppendLine($"- {action.Action} {action.Text} {(action.X.HasValue ? $"({action.X.Value},{action.Y.Value})" : "")}"); }
+                foreach(var action in history) { promptBuilder.AppendLine($"- {JsonSerializer.Serialize(action)}"); }
             }
 
-            promptBuilder.AppendLine("Respond with a JSON object describing the next single action. The possible actions are:");
-            promptBuilder.AppendLine("- `TYPE`: type a string of text. `text` property is required.");
-            promptBuilder.AppendLine("- `CLICK`: click the mouse at a specific coordinate. `x` and `y` properties are required.");
-            promptBuilder.AppendLine("- `DONE`: the instruction is complete.");
-            promptBuilder.AppendLine("Example for typing: {\"action\": \"TYPE\", \"text\": \"hello world\"}");
-            promptBuilder.AppendLine("Example for clicking: {\"action\": \"CLICK\", \"x\": 123, \"y\": 456}");
-            promptBuilder.AppendLine("Example for finishing: {\"action\": \"DONE\"}");
-            promptBuilder.AppendLine("Analyze the image and provide the JSON for the very next action to take.");
+            promptBuilder.AppendLine("Here is a list of the interactable UI elements currently on the screen in JSON format:");
+            promptBuilder.AppendLine("```json");
+            promptBuilder.AppendLine(JsonSerializer.Serialize(uiMap, new JsonSerializerOptions { WriteIndented = true }));
+            promptBuilder.AppendLine("```");
+
+            promptBuilder.AppendLine("Based on the screenshot, the user's instruction, the action history, and the UI element list, choose the single next action to perform.");
+            promptBuilder.AppendLine("Respond with a JSON object describing the action. The action should target one of the controls from the list.");
+            promptBuilder.AppendLine("The possible actions are `INVOKE` (to click a button), `SET_VALUE` (to type in a text box), and `DONE` (when the task is complete).");
+            promptBuilder.AppendLine("Example: {\"action\": \"INVOKE\", \"control\": {\"name\": \"Save\", \"type\": \"Button\"}}");
 
             return promptBuilder.ToString();
         }
@@ -233,10 +234,7 @@ namespace OllamaVision
             base.WndProc(ref m);
             if (m.Msg == WM_HOTKEY)
             {
-                if (m.WParam.ToInt32() == EXECUTE_HOTKEY_ID)
-                {
-                    executeButton.PerformClick();
-                }
+                if (m.WParam.ToInt32() == EXECUTE_HOTKEY_ID) { executeButton.PerformClick(); }
                 else if (m.WParam.ToInt32() == STOP_HOTKEY_ID)
                 {
                     if (_executionCts != null && !_executionCts.IsCancellationRequested)
@@ -256,7 +254,7 @@ namespace OllamaVision
         }
     }
 
-    // Data models
+    // Data models are now in ActionExecutor.cs
     public class OllamaRequest { public string Model { get; set; } public bool Stream { get; set; } public Message[] Messages { get; set; } }
     public class Message { public string Role { get; set; } public string Content { get; set; } public string[] Images { get; set; } }
     public class OllamaResponse { public Message Message { get; set; } }
