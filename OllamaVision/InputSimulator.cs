@@ -6,12 +6,20 @@ namespace OllamaVision
 {
     public class InputSimulator
     {
+        // Main SendInput function
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+        // For getting extra message info
         [DllImport("user32.dll")]
         private static extern IntPtr GetMessageExtraInfo();
 
+        // For moving the cursor
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetCursorPos(int x, int y);
+
+        // Input structures and unions
         [StructLayout(LayoutKind.Sequential)]
         public struct INPUT
         {
@@ -59,10 +67,21 @@ namespace OllamaVision
             public ushort wParamH;
         }
 
+        // Input type constants
+        private const int INPUT_MOUSE = 0;
         private const int INPUT_KEYBOARD = 1;
+
+        // Keyboard event constants
         private const uint KEYEVENTF_UNICODE = 0x0004;
         private const uint KEYEVENTF_KEYUP = 0x0002;
 
+        // Mouse event constants
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x02;
+        private const uint MOUSEEVENTF_LEFTUP = 0x04;
+
+        /// <summary>
+        /// Simulates typing a string of text.
+        /// </summary>
         public static void SendText(string text)
         {
             if (string.IsNullOrEmpty(text)) return;
@@ -76,14 +95,7 @@ namespace OllamaVision
                     type = INPUT_KEYBOARD,
                     u = new InputUnion
                     {
-                        ki = new KEYBDINPUT
-                        {
-                            wVk = 0,
-                            wScan = text[i],
-                            dwFlags = KEYEVENTF_UNICODE,
-                            time = 0,
-                            dwExtraInfo = GetMessageExtraInfo()
-                        }
+                        ki = new KEYBDINPUT { wScan = text[i], dwFlags = KEYEVENTF_UNICODE, dwExtraInfo = GetMessageExtraInfo() }
                     }
                 };
 
@@ -93,17 +105,34 @@ namespace OllamaVision
                     type = INPUT_KEYBOARD,
                     u = new InputUnion
                     {
-                        ki = new KEYBDINPUT
-                        {
-                            wVk = 0,
-                            wScan = text[i],
-                            dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                            time = 0,
-                            dwExtraInfo = GetMessageExtraInfo()
-                        }
+                        ki = new KEYBDINPUT { wScan = text[i], dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, dwExtraInfo = GetMessageExtraInfo() }
                     }
                 };
             }
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+        }
+
+        /// <summary>
+        /// Moves the mouse to a specific screen coordinate and performs a left click.
+        /// </summary>
+        public static void ClickOnPoint(int x, int y)
+        {
+            SetCursorPos(x, y);
+
+            INPUT[] inputs = new INPUT[]
+            {
+                new INPUT
+                {
+                    type = INPUT_MOUSE,
+                    u = new InputUnion { mi = new MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTDOWN } }
+                },
+                new INPUT
+                {
+                    type = INPUT_MOUSE,
+                    u = new InputUnion { mi = new MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTUP } }
+                }
+            };
+
             SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
     }
